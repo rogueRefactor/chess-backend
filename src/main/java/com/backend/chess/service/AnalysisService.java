@@ -3,10 +3,7 @@ package com.backend.chess.service;
 import com.backend.chess.analysis.AnalysisResult;
 import com.backend.chess.analysis.Pin;
 import com.backend.chess.analysis.Territory;
-import com.backend.chess.model.Board;
-import com.backend.chess.model.Coordinates;
-import com.backend.chess.model.Piece;
-import com.backend.chess.model.PlayerColor;
+import com.backend.chess.model.*;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -52,7 +49,6 @@ public class AnalysisService {
 
                         territoryMap.put(attackedCoord, new Territory(controller, whiteAttackers, blackAttackers));
 
-                        // Check if an enemy piece is on the attacked square
                         Piece targetPiece = board.getPieceAt(attackedCoord);
                         if (targetPiece != null && targetPiece.color() != piece.color()) {
                             attackedPieces.put(coordinatesToAlgebraic(attackedCoord), piece.color().name());
@@ -71,34 +67,185 @@ public class AnalysisService {
         return new AnalysisResult(territoryMapForDto, attackedPieces, pins);
     }
 
+    private List<Pin> calculatePins(Board board) {
+        List<Pin> pins = new ArrayList<>();
+        // We need to check for pins for both White and Black kings.
+        pins.addAll(findPinsForColor(PlayerColor.WHITE, board));
+        pins.addAll(findPinsForColor(PlayerColor.BLACK, board));
+        return pins;
+    }
+
+    private List<Pin> findPinsForColor(PlayerColor color, Board board) {
+        List<Pin> pins = new ArrayList<>();
+        Coordinates kingPosition = findKing(color, board);
+        if (kingPosition == null) return pins; // Should not happen in a legal game
+
+        int[][] directions = {
+                {0, 1}, {0, -1}, {1, 0}, {-1, 0}, // Rook directions
+                {1, 1}, {1, -1}, {-1, 1}, {-1, -1}  // Bishop directions
+        };
+
+        for (int[] dir : directions) {
+            Coordinates potentialPin = null;
+            Coordinates current = new Coordinates(kingPosition.x() + dir[0], kingPosition.y() + dir[1]);
+
+            while (!current.isOutOfBounds()) {
+                Piece pieceOnRay = board.getPieceAt(current);
+                if (pieceOnRay != null) {
+                    if (pieceOnRay.color() == color) {
+                        // It's a friendly piece. Is it the first one we've seen on this line?
+                        if (potentialPin == null) {
+                            potentialPin = current;
+                        } else {
+                            // This is the second friendly piece, so no pin is possible on this line.
+                            break;
+                        }
+                    } else {
+                        // It's an enemy piece. Does it cause a pin?
+                        if (potentialPin != null) {
+                            // We have a friendly piece between the king and this enemy piece.
+                            // Check if the enemy piece is a sliding piece that can attack along this line.
+                            PieceType type = pieceOnRay.type();
+                            boolean isRookLike = (type == PieceType.ROOK || type == PieceType.QUEEN);
+                            boolean isBishopLike = (type == PieceType.BISHOP || type == PieceType.QUEEN);
+                            boolean isStraight = dir[0] == 0 || dir[1] == 0;
+                            boolean isDiagonal = Math.abs(dir[0]) == Math.abs(dir[1]);
+
+                            if ((isStraight && isRookLike) || (isDiagonal && isBishopLike)) {
+                                // It's a pin!
+                                pins.add(new Pin(potentialPin, current));
+                            }
+                        }
+                        // Whether it caused a pin or not, the line of sight is blocked.
+                        break;
+                    }
+                }
+                current = new Coordinates(current.x() + dir[0], current.y() + dir[1]);
+            }
+        }
+        return pins;
+    }
+
+    private Coordinates findKing(PlayerColor color, Board board) {
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
+                Coordinates coords = new Coordinates(x, y);
+                Piece piece = board.getPieceAt(coords);
+                if (piece != null && piece.type() == PieceType.KING && piece.color() == color) {
+                    return coords;
+                }
+            }
+        }
+        return null; // Should be unreachable in a valid game
+    }
+
+
     /**
      * Gets all squares that a given piece attacks.
      * This method delegates to piece-specific helpers.
      */
     private List<Coordinates> getAttackedSquaresForPiece(Piece piece, Coordinates position, Board board) {
-        // In a real chess engine, this would be more complex, handling captures vs. non-capturing moves.
-        // For our analysis, we care about any square the piece can "see".
         switch (piece.type()) {
-            // case PAWN: return getAttackedSquaresForPawn(piece, position, board);
-            // case ROOK: return getAttackedSquaresForRook(piece, position, board);
-            // case KNIGHT: return getAttackedSquaresForKnight(piece, position, board);
-            // case BISHOP: return getAttackedSquaresForBishop(piece, position, board);
-            // case QUEEN: return getAttackedSquaresForQueen(piece, position, board);
-            // case KING: return getAttackedSquaresForKing(piece, position, board);
-            default: return new ArrayList<>(); // Default to empty for now
+            case PAWN:
+                return getAttackedSquaresForPawn(piece, position, board);
+            case ROOK:
+                return getAttackedSquaresForRook(position, board);
+            case KNIGHT:
+                return getAttackedSquaresForKnight(position);
+            case BISHOP:
+                return getAttackedSquaresForBishop(position, board);
+            case QUEEN:
+                return getAttackedSquaresForQueen(position, board);
+            case KING:
+                return getAttackedSquaresForKing(position);
+            default:
+                return new ArrayList<>(); // Default to empty for now
         }
     }
 
     // --- Placeholder methods for piece-specific attack logic ---
     // We will implement the logic for these in subsequent steps.
 
-    // private List<Coordinates> getAttackedSquaresForPawn(...) { ... }
-    // private List<Coordinates> getAttackedSquaresForRook(...) { ... }
-    // private List<Coordinates> getAttackedSquaresForKnight(...) { ... }
-    // private List<Coordinates> getAttackedSquaresForBishop(...) { ... }
-    // private List<Coordinates> getAttackedSquaresForQueen(...) { ... }
-    // private List<Coordinates> getAttackedSquaresForKing(...) { ... }
+    private List<Coordinates> getAttackedSquaresForPawn(Piece piece, Coordinates position, Board board) {
+        List<Coordinates> attackedSquares = new ArrayList<>();
+        int direction = piece.color() == PlayerColor.WHITE ? 1 : -1;
+        Coordinates leftAttack = new Coordinates(position.x() - 1, position.y() + direction);
+        Coordinates rightAttack = new Coordinates(position.x() + 1, position.y() + direction);
+        if (!leftAttack.isOutOfBounds()) {
+            attackedSquares.add(leftAttack);
+        }
+        if (!rightAttack.isOutOfBounds()) {
+            attackedSquares.add(rightAttack);
+        }
+        return attackedSquares;
+    }
 
+    private List<Coordinates> getAttackedSquaresForKnight(Coordinates position) {
+        List<Coordinates> attackedSquares = new ArrayList<>();
+        int[][] moves = {
+                {1, 2}, {1, -2}, {-1, 2}, {-1, -2},
+                {2, 1}, {2, -1}, {-2, 1}, {-2, -1}
+        };
+
+        for (int[] move : moves) {
+            Coordinates target = new Coordinates(position.x() + move[0], position.y() + move[1]);
+            if (!target.isOutOfBounds()) {
+                attackedSquares.add(target);
+            }
+        }
+        return attackedSquares;
+    }
+
+    private List<Coordinates> getAttackedSquaresForRook(Coordinates position, Board board) {
+        int[][] directions = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}}; // Up, Down, Right, Left
+        return getSlidingAttackedSquares(position, board, directions);
+    }
+
+    private List<Coordinates> getAttackedSquaresForBishop(Coordinates position, Board board) {
+        int[][] directions = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}}; // Diagonal directions
+        return getSlidingAttackedSquares(position, board, directions);
+    }
+
+    private List<Coordinates> getAttackedSquaresForQueen(Coordinates position, Board board) {
+        int[][] directions = {
+                {0, 1}, {0, -1}, {1, 0}, {-1, 0}, // Rook directions
+                {1, 1}, {1, -1}, {-1, 1}, {-1, -1}  // Bishop directions
+        };
+        return getSlidingAttackedSquares(position, board, directions);
+    }
+
+    private List<Coordinates> getAttackedSquaresForKing(Coordinates position) {
+        List<Coordinates> attackedSquares = new ArrayList<>();
+        int[][] moves = {
+                {0, 1}, {0, -1}, {1, 0}, {-1, 0}, // Rook directions
+                {1, 1}, {1, -1}, {-1, 1}, {-1, -1}  // Bishop directions
+        };
+
+        for (int[] move : moves) {
+            Coordinates target = new Coordinates(position.x() + move[0], position.y() + move[1]);
+            if (!target.isOutOfBounds()) {
+                attackedSquares.add(target);
+            }
+        }
+        return attackedSquares;
+    }
+
+
+    private List<Coordinates> getSlidingAttackedSquares(Coordinates position, Board board, int[][] directions) {
+        List<Coordinates> attackedSquares = new ArrayList<>();
+        for (int[] dir : directions) {
+            Coordinates current = new Coordinates(position.x() + dir[0], position.y() + dir[1]);
+            while (!current.isOutOfBounds()) {
+                attackedSquares.add(current);
+                // If we hit any piece (friend or foe), the line of sight is blocked.
+                if (board.getPieceAt(current) != null) {
+                    break;
+                }
+                current = new Coordinates(current.x() + dir[0], current.y() + dir[1]);
+            }
+        }
+        return attackedSquares;
+    }
 
     /**
      * Initializes an 8x8 map where each square has 0 attackers.
