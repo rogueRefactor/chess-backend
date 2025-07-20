@@ -1,8 +1,11 @@
 package com.backend.chess.model;
 
+import lombok.Getter;
+
 import java.util.Arrays;
 
 public class Board {
+    @Getter
     private Piece[][] squares;
 
     //constructors

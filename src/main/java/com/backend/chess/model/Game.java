@@ -43,5 +43,7 @@ public class Game {
     }
 
 
-
+    public void addMoveToHistory(String moveNotation) {
+        this.moveHistory.add(moveNotation);
+    }
 }
