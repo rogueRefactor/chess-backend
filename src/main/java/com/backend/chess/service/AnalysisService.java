@@ -126,7 +126,7 @@ public class AnalysisService {
         return pins;
     }
 
-    private Coordinates findKing(PlayerColor color, Board board) {
+    public Coordinates findKing(PlayerColor color, Board board) {
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 8; x++) {
                 Coordinates coords = new Coordinates(x, y);
@@ -245,6 +245,118 @@ public class AnalysisService {
             }
         }
         return attackedSquares;
+    }
+
+    /**
+     * Generates all pseudo-legal moves for a piece at a given position.
+     * "Pseudo-legal" means it follows the piece's movement rules, but doesn't
+     * account for leaving the king in check.
+     *
+     * @param from The starting coordinates of the piece.
+     * @param board The current board state.
+     * @return A list of possible Move objects.
+     */
+    public List<Move> generatePseudoLegalMoves(Coordinates from, Board board) {
+        Piece piece = board.getPieceAt(from);
+        if (piece == null) {
+            return new ArrayList<>();
+        }
+
+        switch (piece.type()) {
+            case PAWN: return generateMovesForPawn(from, piece.color(), board);
+            case ROOK: return generateMovesForSlidingPiece(from, piece.color(), board, new int[][]{{0, 1}, {0, -1}, {1, 0}, {-1, 0}});
+            case KNIGHT: return generateMovesForKnight(from, piece.color(), board);
+            case BISHOP: return generateMovesForSlidingPiece(from, piece.color(), board, new int[][]{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}});
+            case QUEEN: return generateMovesForSlidingPiece(from, piece.color(), board, new int[][]{{0, 1}, {0, -1}, {1, 0}, {-1, 0}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}});
+            case KING: return generateMovesForKing(from, piece.color(), board);
+            default: return new ArrayList<>();
+        }
+    }
+
+    // --- Private move generation helpers ---
+
+    private List<Move> generateMovesForPawn(Coordinates from, PlayerColor color, Board board) {
+        List<Move> moves = new ArrayList<>();
+        int direction = (color == PlayerColor.WHITE) ? 1 : -1;
+        int startRank = (color == PlayerColor.WHITE) ? 1 : 6;
+
+        // 1. Forward move
+        Coordinates oneStep = new Coordinates(from.x(), from.y() + direction);
+        if (!oneStep.isOutOfBounds() && board.getPieceAt(oneStep) == null) {
+            moves.add(new Move(from, oneStep, null));
+            // 2. Double forward move from start
+            if (from.y() == startRank) {
+                Coordinates twoSteps = new Coordinates(from.x(), from.y() + 2 * direction);
+                if (!twoSteps.isOutOfBounds() && board.getPieceAt(twoSteps) == null) {
+                    moves.add(new Move(from, twoSteps, null));
+                }
+            }
+        }
+
+        // 3. Captures
+        int[] captureCols = {from.x() - 1, from.x() + 1};
+        for (int col : captureCols) {
+            Coordinates capturePos = new Coordinates(col, from.y() + direction);
+            if (!capturePos.isOutOfBounds()) {
+                Piece target = board.getPieceAt(capturePos);
+                if (target != null && target.color() != color) {
+                    moves.add(new Move(from, capturePos, null));
+                }
+            }
+        }
+        // TODO: Add en-passant and promotion logic
+        return moves;
+    }
+
+    private List<Move> generateMovesForKnight(Coordinates from, PlayerColor color, Board board) {
+        List<Move> moves = new ArrayList<>();
+        int[][] moveOffsets = {{1, 2}, {1, -2}, {-1, 2}, {-1, -2}, {2, 1}, {2, -1}, {-2, 1}, {-2, -1}};
+        for (int[] offset : moveOffsets) {
+            Coordinates to = new Coordinates(from.x() + offset[0], from.y() + offset[1]);
+            if (!to.isOutOfBounds()) {
+                Piece target = board.getPieceAt(to);
+                if (target == null || target.color() != color) {
+                    moves.add(new Move(from, to, null));
+                }
+            }
+        }
+        return moves;
+    }
+
+    private List<Move> generateMovesForKing(Coordinates from, PlayerColor color, Board board) {
+        List<Move> moves = new ArrayList<>();
+        int[][] moveOffsets = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+        for (int[] offset : moveOffsets) {
+            Coordinates to = new Coordinates(from.x() + offset[0], from.y() + offset[1]);
+            if (!to.isOutOfBounds()) {
+                Piece target = board.getPieceAt(to);
+                if (target == null || target.color() != color) {
+                    moves.add(new Move(from, to, null));
+                }
+            }
+        }
+        // TODO: Add castling logic
+        return moves;
+    }
+
+    private List<Move> generateMovesForSlidingPiece(Coordinates from, PlayerColor color, Board board, int[][] directions) {
+        List<Move> moves = new ArrayList<>();
+        for (int[] dir : directions) {
+            Coordinates current = new Coordinates(from.x() + dir[0], from.y() + dir[1]);
+            while (!current.isOutOfBounds()) {
+                Piece target = board.getPieceAt(current);
+                if (target == null) {
+                    moves.add(new Move(from, current, null)); // Can move to empty square
+                } else {
+                    if (target.color() != color) {
+                        moves.add(new Move(from, current, null)); // Can capture enemy piece
+                    }
+                    break; // Line of sight is blocked
+                }
+                current = new Coordinates(current.x() + dir[0], current.y() + dir[1]);
+            }
+        }
+        return moves;
     }
 
     /**
